@@ -1,0 +1,1490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Emulate, Recompile, Decompile</title>
+<meta name="description" content="One real SNES routine, shown as machine code, under an emulator, as recompiled C and as decompiled C.">
+<style>
+:root {
+  /* Layout: a field-guide column (~68ch of prose) that widens to 1240px for the diagram and the code explorer.
+     Color: the Super Famicom face buttons code the three approaches. X blue = emulation,
+     Y green = recompilation, A red = decompilation, B yellow = "look here". Everything else is cool neutral.
+     Type: a humanist sans for display and UI, a book serif for reading, the system mono for code. */
+  --paper: #f3f4f7;
+  --surface: #ffffff;
+  --sunken: #e8ebf0;
+  --ink: #14161b;
+  --ink-2: #464c5b;
+  --ink-3: #757c8d;
+  --rule: #d7dbe3;
+  --hatch: rgba(20, 24, 33, 0.1);
+  --emu: #2b5fc7;
+  --rec: #1d8248;
+  --dec: #c33a2e;
+  --hit: #e2ac14;
+  --on-accent: #ffffff;
+  --hit-wash: rgba(233, 181, 31, 0.24);
+  --exit-wash: rgba(233, 181, 31, 0.4);
+  --emu-wash: rgba(43, 95, 199, 0.08);
+  --rec-wash: rgba(29, 130, 72, 0.08);
+  --dec-wash: rgba(195, 58, 46, 0.07);
+  --syn-kw: #6a3ea6;
+  --syn-ty: #1f5f8b;
+  --syn-num: #9c520a;
+  --syn-com: #7d8495;
+  --syn-fn: #22324f;
+  --pad-body: #d3d6de;
+  --pad-key: #33363f;
+  --pad-glyph: #c9ccd4;
+  --shadow: 0 1px 0 rgba(20, 24, 33, 0.04), 0 14px 30px -20px rgba(20, 24, 33, 0.4);
+  --font-display: "Avenir Next", Avenir, "Segoe UI Variable Display", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body: Charter, "Bitstream Charter", "Sitka Text", Cambria, "Iowan Old Style", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e1014;
+    --surface: #161920;
+    --sunken: #1f232c;
+    --ink: #e9ebf1;
+    --ink-2: #adb3c1;
+    --ink-3: #7a8192;
+    --rule: #2b303b;
+    --hatch: rgba(255, 255, 255, 0.08);
+    --emu: #7ea5ff;
+    --rec: #55c98b;
+    --dec: #ff8576;
+    --hit: #f2c94a;
+    --on-accent: #0e1014;
+    --hit-wash: rgba(242, 201, 74, 0.16);
+    --exit-wash: rgba(242, 201, 74, 0.28);
+    --emu-wash: rgba(126, 165, 255, 0.1);
+    --rec-wash: rgba(85, 201, 139, 0.1);
+    --dec-wash: rgba(255, 133, 118, 0.1);
+    --syn-kw: #c5a8ff;
+    --syn-ty: #7cc4ef;
+    --syn-num: #f0b46a;
+    --syn-com: #767d8e;
+    --syn-fn: #dfe6f5;
+    --pad-body: #363a45;
+    --pad-key: #1a1d24;
+    --pad-glyph: #8d93a3;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 16px 34px -20px rgba(0, 0, 0, 0.85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e1014;
+  --surface: #161920;
+  --sunken: #1f232c;
+  --ink: #e9ebf1;
+  --ink-2: #adb3c1;
+  --ink-3: #7a8192;
+  --rule: #2b303b;
+  --hatch: rgba(255, 255, 255, 0.08);
+  --emu: #7ea5ff;
+  --rec: #55c98b;
+  --dec: #ff8576;
+  --hit: #f2c94a;
+  --on-accent: #0e1014;
+  --hit-wash: rgba(242, 201, 74, 0.16);
+  --exit-wash: rgba(242, 201, 74, 0.28);
+  --emu-wash: rgba(126, 165, 255, 0.1);
+  --rec-wash: rgba(85, 201, 139, 0.1);
+  --dec-wash: rgba(255, 133, 118, 0.1);
+  --syn-kw: #c5a8ff;
+  --syn-ty: #7cc4ef;
+  --syn-num: #f0b46a;
+  --syn-com: #767d8e;
+  --syn-fn: #dfe6f5;
+  --pad-body: #363a45;
+  --pad-key: #1a1d24;
+  --pad-glyph: #8d93a3;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 16px 34px -20px rgba(0, 0, 0, 0.85);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+a { color: inherit; text-underline-offset: 0.18em; }
+:focus-visible { outline: 2px solid var(--emu); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--hit-wash); }
+
+.wrap { width: 100%; max-width: 1240px; margin-inline: auto; padding-inline: clamp(16px, 4vw, 40px); }
+.prose { max-width: 68ch; display: grid; gap: 14px; }
+.prose p, .prose li { text-wrap: pretty; }
+h1, h2, h3 { margin: 0; font-family: var(--font-display); line-height: 1.1; text-wrap: balance; color: var(--ink); }
+h1 { font-size: clamp(2.35rem, 6vw, 4.6rem); font-weight: 800; letter-spacing: -0.035em; max-width: 14ch; }
+h2 { font-size: clamp(1.65rem, 3.4vw, 2.4rem); font-weight: 750; letter-spacing: -0.02em; }
+h3 { font-size: 1.12rem; font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--sunken); padding: 0.06em 0.32em; border-radius: 4px; }
+pre code { background: none; padding: 0; font-size: inherit; border-radius: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-2); letter-spacing: 0.02em; }
+.label { font-family: var(--font-display); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.section { padding-block: clamp(56px, 8vw, 104px); border-top: 1px solid var(--rule); display: grid; gap: clamp(22px, 3vw, 32px); }
+.emu { --c: var(--emu); --w: var(--emu-wash); }
+.rec { --c: var(--rec); --w: var(--rec-wash); }
+.dec { --c: var(--dec); --w: var(--dec-wash); }
+.dot { display: inline-block; width: 0.78em; height: 0.78em; border-radius: 50%; background: var(--c); flex: none; }
+
+/* ---------- hero ---------- */
+.hero { padding-block: clamp(40px, 7vw, 92px) clamp(44px, 6vw, 76px); display: grid; gap: clamp(16px, 2.4vw, 24px); }
+.lede { font-size: clamp(1.1rem, 1.6vw, 1.28rem); line-height: 1.55; color: var(--ink-2); max-width: 62ch; text-wrap: pretty; }
+.rom { margin: 14px 0 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(16px, 2.4vw, 24px); display: grid; gap: 16px; box-shadow: var(--shadow); }
+.rom-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 18px; }
+.rom-head p { font-family: var(--font-display); font-size: 0.95rem; color: var(--ink-2); }
+.tape { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.tape button {
+  font-family: var(--font-mono); font-size: clamp(0.98rem, 1.7vw, 1.22rem); letter-spacing: 0.02em;
+  color: var(--ink); background: transparent; border: 0; border-bottom: 2px solid var(--rule);
+  padding: 3px 3px 4px; border-radius: 4px 4px 0 0; cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.tape button:hover, .tape button.on { background: var(--hit-wash); border-bottom-color: var(--hit); }
+.decode { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; min-height: 1.6em; font-family: var(--font-mono); font-size: 0.95rem; padding-top: 14px; border-top: 1px dashed var(--rule); }
+.decode .d-ad, .decode .d-ar { color: var(--ink-3); }
+.decode .d-by { color: var(--ink-2); }
+.decode .d-cm { font-family: var(--font-display); color: var(--ink-2); }
+.rom .aside { font-size: 0.93rem; color: var(--ink-2); max-width: 72ch; }
+
+/* ---------- who does the work ---------- */
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; justify-self: start; }
+.seg button { font: 650 0.9rem/1 var(--font-display); color: var(--ink-2); background: transparent; border: 0; padding: 10px 16px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.stacks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(12px, 1.8vw, 22px); }
+.stack { display: grid; grid-template-rows: auto 1fr; gap: 18px; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(16px, 2vw, 20px); min-width: 0; }
+.stack-head { display: grid; gap: 8px; align-content: start; }
+.stack-head h3 { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; }
+.stack-head p { font-size: 0.97rem; color: var(--ink-2); }
+.stack-head p b { color: var(--ink); font-family: var(--font-display); font-weight: 650; }
+.layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; }
+.stacks[data-phase="run"] .layers.build, .stacks[data-phase="build"] .layers.run { display: none; }
+.layers li { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 9px; background: var(--surface); font-family: var(--font-display); animation: rise 0.38s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.layers li:nth-child(2) { animation-delay: 0.04s; }
+.layers li:nth-child(3) { animation-delay: 0.08s; }
+.layers li:nth-child(4) { animation-delay: 0.12s; }
+.layers li:nth-child(5) { animation-delay: 0.16s; }
+.layers li:nth-child(6) { animation-delay: 0.2s; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.layers b { font-size: 0.95rem; font-weight: 650; line-height: 1.25; }
+.layers span { font-size: 0.82rem; line-height: 1.35; color: var(--ink-2); }
+.layers .game { border-color: var(--c); background: var(--w); }
+.layers .work { border: 2px solid var(--c); }
+.layers .snes { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--hatch) 6px 7px); }
+.layers .base { background: var(--sunken); border-color: transparent; }
+.layers .none { border-style: dashed; background: transparent; }
+.layers.build { gap: 18px; }
+.layers.build li + li { position: relative; }
+.layers.build li + li::before { content: "↓"; position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-size: 0.8rem; line-height: 1; color: var(--ink-3); }
+.cycle { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 3px; }
+.cycle i { font: 600 0.72rem/1 var(--font-mono); font-style: normal; padding: 4px 7px; border-radius: 5px; border: 1px solid var(--c); color: var(--c); animation: cyc 1.8s steps(1, end) infinite; }
+.cycle i:nth-child(2) { animation-delay: 0.6s; }
+.cycle i:nth-child(3) { animation-delay: 1.2s; }
+@keyframes cyc { 0% { background: var(--c); color: var(--on-accent); } 33.34% { background: transparent; color: var(--c); } }
+.stack-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; font-family: var(--font-display); font-size: 0.95rem; color: var(--ink-2); }
+.swatch { display: inline-block; width: 1.5em; height: 1em; margin-right: 7px; vertical-align: -0.15em; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface) repeating-linear-gradient(135deg, transparent 0 4px, var(--hatch) 4px 5px); }
+
+/* ---------- explorer ---------- */
+.rules { margin: 0; padding-left: 1.4em; display: grid; gap: 2px; }
+.rules li::marker { font-family: var(--font-display); font-weight: 700; color: var(--ink-3); }
+.explorer { display: grid; gap: 18px; }
+.situation { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 18px clamp(18px, 3vw, 36px); align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(14px, 2vw, 20px); box-shadow: var(--shadow); }
+.terrain { display: grid; gap: 10px; align-content: center; }
+.switch { position: relative; display: block; min-height: 28px; padding: 4px 0 4px 50px; font: 600 0.92rem/1.3 var(--font-display); color: var(--ink); text-align: left; background: transparent; border: 0; cursor: pointer; }
+.switch::before { content: ""; position: absolute; left: 0; top: 50%; width: 38px; height: 22px; margin-top: -11px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--rule); transition: background-color 0.18s, border-color 0.18s; }
+.switch::after { content: ""; position: absolute; left: 3px; top: 50%; width: 16px; height: 16px; margin-top: -8px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); transition: transform 0.18s; }
+.switch[aria-pressed="true"]::before { background: var(--ink); border-color: var(--ink); }
+.switch[aria-pressed="true"]::after { transform: translateX(16px); }
+.switch small { display: block; font-size: 0.76rem; font-weight: 500; color: var(--ink-3); }
+.pad-wrap { display: grid; gap: 8px; justify-items: start; }
+.pad { display: flex; align-items: center; gap: 26px; padding: 14px 26px; background: var(--pad-body); border-radius: 999px; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.1); }
+.dpad, .face { display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 30px); }
+.dpad button, .dpad .mid { display: grid; place-items: center; padding: 0; border: 0; background: var(--pad-key); color: var(--pad-glyph); font-size: 12px; line-height: 1; cursor: pointer; }
+.dpad .up { grid-area: 1 / 2; border-radius: 5px 5px 0 0; }
+.dpad .left { grid-area: 2 / 1; border-radius: 5px 0 0 5px; }
+.dpad .mid { grid-area: 2 / 2; cursor: default; }
+.dpad .right { grid-area: 2 / 3; border-radius: 0 5px 5px 0; }
+.dpad .down { grid-area: 3 / 2; border-radius: 0 0 5px 5px; }
+.dpad button[aria-pressed="true"] { color: var(--hit); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6); }
+.dpad button:disabled { cursor: default; }
+.dpad button:disabled span { opacity: 0.35; }
+.face .fb { display: grid; place-items: center; width: 28px; height: 28px; margin: 1px; padding: 0; border: 0; border-radius: 50%; font: 700 0.72rem/1 var(--font-display); color: var(--on-accent); cursor: pointer; box-shadow: 0 2px 0 rgba(0, 0, 0, 0.28); transition: transform 0.1s; }
+.face .x { grid-area: 1 / 2; background: var(--emu); }
+.face .y { grid-area: 2 / 1; background: var(--rec); }
+.face .a { grid-area: 2 / 3; background: var(--dec); }
+.face .b { grid-area: 3 / 2; background: var(--hit); color: #3a2d00; }
+.face .fb:disabled { opacity: 0.38; cursor: default; }
+.face .fb[aria-pressed="true"] { transform: translateY(2px); box-shadow: 0 0 0 3px var(--pad-body), 0 0 0 5px var(--ink); }
+.pad-note { font: 0.78rem/1.4 var(--font-display); color: var(--ink-3); max-width: 30ch; }
+.outcome { display: grid; gap: 10px; min-width: 0; padding-left: clamp(16px, 2.4vw, 28px); border-left: 1px solid var(--rule); }
+.o-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.o-main { font: 800 clamp(1.5rem, 2.6vw, 2rem)/1 var(--font-display); letter-spacing: -0.02em; }
+.o-forms { display: grid; gap: 6px; margin: 0; }
+.o-forms > div { display: grid; grid-template-columns: 6.4rem minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.o-forms dt { font: 700 0.7rem var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--c, var(--ink-3)); }
+.o-forms dd { margin: 0; min-width: 0; font: 0.9rem/1.4 var(--font-display); color: var(--ink-2); overflow-wrap: anywhere; }
+.ex-grid { display: grid; grid-template-columns: minmax(0, 31rem) minmax(0, 1fr); gap: 18px; align-items: start; }
+
+.listing { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; }
+.listing-head { display: grid; gap: 3px; padding: 14px 14px 4px; }
+.listing-head p { font: 0.85rem/1.4 var(--font-display); color: var(--ink-2); }
+.lrow, .ln { display: grid; grid-template-columns: 1.1rem 3.4rem 5rem 6.6rem minmax(0, 1fr); column-gap: 8px; align-items: baseline; padding: 4px 14px; }
+.lrow.lh { padding-block: 10px 6px; border-bottom: 1px solid var(--rule); font: 700 0.64rem var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.ln { font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.5; cursor: pointer; transition: opacity 0.2s, background-color 0.15s; }
+.ln .mk { text-align: center; color: var(--ink-3); }
+.ln .ad { color: var(--ink-3); }
+.ln .by { color: var(--ink-2); }
+.ln .as b { font-weight: 700; }
+.ln .cm { font: 0.8rem/1.35 var(--font-display); color: var(--ink-2); }
+.ln.skip { opacity: 0.38; }
+.ln.run .mk::before { content: "●"; font-size: 0.62em; }
+.ln.taken .mk::before { content: "↷"; font-size: 1em; color: var(--ink); }
+.ln.exit { background: var(--exit-wash); }
+.ln.exit .mk::before { content: "→"; font-size: 1em; color: var(--ink); }
+.ln.exit .cm { color: var(--ink); font-weight: 650; }
+.ln.xhl { background: var(--hit-wash); opacity: 1; box-shadow: inset 3px 0 0 var(--hit); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 10px 14px 12px; border-top: 1px solid var(--rule); font: 0.78rem/1.4 var(--font-display); color: var(--ink-3); }
+
+.tabset { display: grid; min-width: 0; }
+.tablist { display: flex; gap: 2px; border-bottom: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
+.tab { display: inline-flex; align-items: center; gap: 8px; margin-bottom: -1px; padding: 12px 14px 11px; font: 650 0.98rem/1 var(--font-display); color: var(--ink-2); white-space: nowrap; background: transparent; border: 0; border-bottom: 3px solid transparent; cursor: pointer; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--c); }
+.tabpanel { display: grid; gap: 14px; padding-top: 16px; min-width: 0; }
+.notes { display: grid; gap: 10px; }
+.notes h3 { font-size: 1.15rem; }
+.notes ul { margin: 0; padding-left: 1.15em; display: grid; gap: 7px; font-size: 0.97rem; color: var(--ink-2); }
+.notes li::marker { color: var(--c); }
+.src-note { font: 0.84rem/1.45 var(--font-display); color: var(--ink-3); }
+.pane { position: relative; max-height: min(72vh, 36rem); overflow: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.6; }
+#pane-emu { --gut: 5.2rem; }
+#pane-rec { --gut: 9.6rem; }
+#pane-dec { --gut: 8.4rem; }
+.rows { width: max-content; min-width: 100%; padding-block: 10px; }
+.row { display: grid; grid-template-columns: var(--gut) max-content; transition: background-color 0.15s; }
+.gut { position: sticky; left: 0; z-index: 1; display: flex; align-items: baseline; gap: 6px; overflow: hidden; padding: 0 8px 0 12px; font-size: 0.68rem; color: var(--ink-3); white-space: nowrap; background: var(--surface); border-right: 1px solid var(--rule); }
+.gut .g-as { color: var(--ink-2); }
+.gut .hits { margin-left: auto; font-weight: 700; color: var(--emu); }
+.row pre { margin: 0; padding: 0 18px 0 12px; font: inherit; white-space: pre; tab-size: 4; transition: opacity 0.2s; }
+.row[data-addrs], .row[data-ops] { cursor: pointer; }
+.row.skip pre { opacity: 0.32; }
+.row.skip .gut { color: var(--ink-3); opacity: 0.6; }
+.row.exit { background: var(--exit-wash); }
+.row.exit .gut { color: var(--ink); background: linear-gradient(var(--exit-wash), var(--exit-wash)), var(--surface); }
+.row.xhl { background: var(--hit-wash); }
+.row.xhl .gut { opacity: 1; background: linear-gradient(var(--hit-wash), var(--hit-wash)), var(--surface); box-shadow: inset 3px 0 0 var(--hit); }
+.t-com { color: var(--syn-com); font-style: italic; }
+.t-kw { color: var(--syn-kw); font-weight: 600; }
+.t-ty { color: var(--syn-ty); }
+.t-num { color: var(--syn-num); }
+.t-str { color: var(--rec); }
+.t-fn { color: var(--syn-fn); }
+.t-lbl { color: var(--rec); font-weight: 650; }
+
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr)); gap: 14px; }
+.fig { margin: 0; display: grid; gap: 12px; align-content: start; min-width: 0; padding: 16px; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; }
+.fig figcaption { font-size: 0.95rem; color: var(--ink-2); }
+.fig figcaption b { font-family: var(--font-display); color: var(--ink); }
+.fig > p { font-size: 0.92rem; color: var(--ink-2); }
+pre.code, pre.asm { margin: 0; overflow-x: auto; padding: 12px 14px; font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.6; background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; }
+.mx { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr)); gap: 10px; }
+.mx-h { margin-bottom: 6px; font: 700 0.72rem var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.mx-h span { font-weight: 500; letter-spacing: 0; text-transform: none; }
+.asm .a { color: var(--ink-3); }
+.asm .b { color: var(--ink-2); }
+.asm .m { font-weight: 700; color: var(--ink); }
+.asm .bad .m, .asm .bad .o { color: var(--dec); }
+
+/* ---------- real projects mix all three ---------- */
+.parts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr)); gap: 10px; }
+.parts li { display: grid; gap: 4px; padding: 12px 14px; font-family: var(--font-display); background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; }
+.parts li b { display: flex; align-items: center; gap: 8px; font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c, var(--ink-2)); }
+.parts li span { font-size: 0.98rem; line-height: 1.35; }
+.parts li.layer { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--hatch) 6px 7px); }
+.parts .swatch { width: 0.78em; height: 0.78em; margin: 0; border-radius: 2px; vertical-align: 0; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: clamp(22px, 3vw, 32px); counter-reset: step; }
+.steps > li { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: 14px; counter-increment: step; }
+.steps > li::before { content: counter(step); display: grid; place-items: center; width: 2.25rem; height: 2.25rem; font: 800 1rem var(--font-display); color: var(--c); border: 2px solid var(--c); border-radius: 50%; }
+.step-body { display: grid; grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); gap: 12px 26px; align-items: start; min-width: 0; }
+.step-text { display: grid; gap: 8px; }
+.step-text p { font-size: 0.97rem; color: var(--ink-2); }
+.closing { font-size: 1.12rem; color: var(--ink); }
+
+/* ---------- at a glance ---------- */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; }
+.tbl table { width: 100%; min-width: 780px; border-collapse: collapse; font-family: var(--font-display); font-size: 0.92rem; line-height: 1.45; }
+.tbl th, .tbl td { padding: 13px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.tbl tbody tr:last-child th, .tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl thead th { font-size: 1rem; font-weight: 750; white-space: nowrap; color: var(--c, var(--ink)); }
+.tbl thead th .dot { margin-right: 8px; vertical-align: -0.05em; }
+.tbl tbody th { width: 12.5rem; font-weight: 650; color: var(--ink-2); }
+
+.foot { display: grid; gap: 12px; padding-block: 36px 60px; border-top: 1px solid var(--rule); font: 0.86rem/1.5 var(--font-display); color: var(--ink-2); }
+.foot h2 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.foot ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; max-width: 100ch; }
+
+/* ---------- explain like I'm five ---------- */
+html:not(.eli5-on) .eli5, html.eli5-on .std { display: none !important; }
+.eli5-toggle {
+  position: fixed; z-index: 20;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 16px 10px 12px;
+  font: 650 0.92rem/1 var(--font-display); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 999px;
+  box-shadow: var(--shadow), 0 8px 20px -10px rgba(0, 0, 0, 0.4); cursor: pointer;
+}
+.eli5-toggle .track { position: relative; flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--rule); transition: background-color 0.18s, border-color 0.18s; }
+.eli5-toggle .track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); transition: transform 0.18s; }
+.eli5-toggle[aria-pressed="true"] .track { background: var(--hit); border-color: var(--hit); }
+.eli5-toggle[aria-pressed="true"] .track::after { transform: translateX(14px); }
+body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) {
+  .ex-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1000px) {
+  .situation { grid-template-columns: auto minmax(0, 1fr); }
+  .outcome { grid-column: 1 / -1; padding: 14px 0 0; border-left: 0; border-top: 1px solid var(--rule); }
+}
+@media (max-width: 920px) {
+  .step-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 880px) {
+  .stacks { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .situation { grid-template-columns: minmax(0, 1fr); }
+  .lrow, .ln { grid-template-columns: 1rem 3.2rem 4.8rem minmax(0, 1fr); }
+  .ln .cm { grid-column: 2 / -1; padding-bottom: 3px; }
+  .lrow.lh span:last-child { display: none; }
+  #pane-rec { --gut: 4.4rem; }
+  #pane-dec { --gut: 6.4rem; }
+  .gut .g-as { display: none; }
+  .o-forms > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+
+<button type="button" class="eli5-toggle" id="eli5-toggle" aria-pressed="false"><span class="track" aria-hidden="true"></span>Explain like I’m five</button>
+
+<header class="hero wrap">
+  <p class="eyebrow">A real SNES routine · ActRaiser (1990) · $00:984E–$00:9883</p>
+  <h1 data-e5="Three ways to run an old game on a new computer">Three ways to run the same 54&nbsp;bytes</h1>
+  <p class="lede" data-e5="An old game is a long list of instructions written for an old machine, the Super Nintendo. Your computer doesn’t speak that machine’s language, a bit like a book written in a language you can’t read. There are three ways around that, and this page shows all three using one tiny, real piece of a game called ActRaiser. That piece decides what your hero does while standing still.">Emulation, recompilation and decompilation get mixed up all the time. This page takes one real routine from ActRaiser, a 1990 SNES game, and shows it each way. The routine decides what the player’s character does next while standing still. The difference between the three comes down to when the game’s code gets translated, and how much machinery is still running underneath it while you play.</p>
+  <figure class="rom">
+    <div class="rom-head">
+      <span class="label">On the cartridge</span>
+      <p data-e5="This is that piece, exactly as it’s stored on the cartridge. To the machine it’s just numbers. Point at a group to see which instruction it is.">These 54 bytes are the routine exactly as it sits in the ROM. Point at a group to decode it.</p>
+    </div>
+    <div class="tape" id="tape" aria-label="The routine's bytes, one group per instruction"></div>
+    <div class="decode" id="decode" aria-live="polite"></div>
+    <p class="aside" data-e5="Each group of numbers is one instruction, like one sentence in the book. The three approaches are three different ways of translating those sentences.">Turning bytes into instructions is the job an emulator does while you play, and a recompiler does once before you play. Decompilation goes a step further and works out what the instructions mean.</p>
+  </figure>
+</header>
+
+<section class="wrap section" id="who">
+  <div class="prose">
+    <h2>Who does the work, and when</h2>
+    <p data-e5="Think of the game as a book in a language your computer can’t read. Here are three ways to read it anyway, and what’s going on underneath each one.">All three end with the game running on your computer. What changes is when the game’s code gets translated, and what is still running underneath it while you play.</p>
+  </div>
+  <div class="seg" role="group" aria-label="Show the work done">
+    <button type="button" id="phase-run" aria-pressed="true">While you play</button>
+    <button type="button" id="phase-build" aria-pressed="false">Before you play</button>
+  </div>
+  <div class="stacks" id="stacks" data-phase="run">
+    <article class="stack emu">
+      <div class="stack-head">
+        <h3><span class="dot"></span>Emulation</h3>
+        <p><b data-e5="A live translator.">Pretend to be a SNES.</b> <span data-e5="Someone translates every sentence out loud while you read, every single time. It works for any book, but the translator never gets a break.">The emulator reads the game’s machine code as data and carries out each instruction as it comes.</span></p>
+      </div>
+      <ol class="layers run">
+        <li class="game"><b data-e5="The game, in the old machine’s language">The game’s machine code</b><span data-e5="just numbers to the translator">read as data, a few bytes at a time</span></li>
+        <li class="work snes"><b data-e5="The live translator">Interpreter loop</b><span class="cycle" aria-hidden="true"><i data-e5="read">fetch</i><i data-e5="figure out">decode</i><i data-e5="do it">execute</i></span><span data-e5="over and over, the whole time you play">for every instruction, every time it runs</span></li>
+        <li class="snes"><b data-e5="A pretend Super Nintendo">A simulated SNES</b><span data-e5="every part of it, faked in software">CPU, RAM, graphics, sound and DMA, kept in step</span></li>
+        <li class="base"><b data-e5="Your computer’s screen and speakers">Your OS, GPU and audio</b></li>
+        <li class="base"><b data-e5="Your computer’s brain">Your CPU</b></li>
+      </ol>
+      <ol class="layers build">
+        <li><b data-e5="Someone builds the translator">Emulator source code</b><span data-e5="once, and it works for every game">written once, for every game</span></li>
+        <li><b data-e5="Made fast">C compiler</b><span data-e5="but only the translator gets faster, not the game">optimizes the emulator, not the game</span></li>
+        <li class="none"><b data-e5="Nothing to prepare">Nothing game-specific</b><span data-e5="the game is used exactly as it is">the emulator loads the ROM as is</span></li>
+      </ol>
+    </article>
+    <article class="stack rec">
+      <div class="stack-head">
+        <h3><span class="dot"></span>Recompilation</h3>
+        <p><b data-e5="Translate the whole book first.">Translate the program once.</b> <span data-e5="A program translates it word for word before you start. Reading is quick, but the wording is clunky and still mentions the old machine’s parts, so a helper has to pretend to be them.">A recompiler turns the machine code into C before you play. The compiled game runs natively on a layer that stands in for the SNES hardware.</span></p>
+      </div>
+      <ol class="layers run">
+        <li class="game work"><b data-e5="The pre-translated game">The game as native code</b><span data-e5="already in your computer’s language">generated C, compiled for your CPU</span></li>
+        <li class="snes"><b data-e5="Stand-in parts">Translation layer</b><span data-e5="pretend to be the old machine’s screen, sound and memory">SNES registers and memory map, graphics, sound and DMA</span></li>
+        <li class="base"><b data-e5="Your computer’s screen and speakers">Your OS, GPU and audio</b></li>
+        <li class="base"><b data-e5="Your computer’s brain">Your CPU</b></li>
+      </ol>
+      <ol class="layers build">
+        <li class="game"><b data-e5="The game, in the old language">The game’s ROM</b></li>
+        <li class="work"><b data-e5="Translator program">Recompiler</b><span data-e5="translates the whole game once">decodes every instruction once and writes C</span></li>
+        <li><b data-e5="A word-for-word translation">Generated C</b><span data-e5="correct, but clunky">exact, but still shaped like the SNES</span></li>
+        <li><b data-e5="Made fast">C compiler</b><span data-e5="and this time the game itself gets faster">optimizes the game’s own code</span></li>
+        <li class="base"><b data-e5="Ready to play">Native program</b><span data-e5="plus the stand-in parts">plus the translation layer</span></li>
+      </ol>
+    </article>
+    <article class="stack dec">
+      <div class="stack-head">
+        <h3><span class="dot"></span>Decompilation</h3>
+        <p><b data-e5="Rewrite it in plain words.">Recover what it means.</b> <span data-e5="People read the book, work out what each part means, and rewrite it clearly. It takes the longest, but then anyone can read it, fix it or add to it.">People, with tools, work out what each routine does and rewrite it as ordinary code that needs no model of the SNES.</span></p>
+      </div>
+      <ol class="layers run">
+        <li class="game work"><b data-e5="The game, rewritten clearly">The game as ordinary C</b><span data-e5="readable by people, runs directly">names, types and plain functions</span></li>
+        <li class="base"><b data-e5="Your computer’s screen and speakers">Your OS, GPU and audio</b><span data-e5="or anything else">or any engine</span></li>
+        <li class="base"><b data-e5="Your computer’s brain">Your CPU</b></li>
+      </ol>
+      <ol class="layers build">
+        <li class="game"><b data-e5="The game, in the old language">The game’s ROM, disassembled</b></li>
+        <li class="work"><b data-e5="People study it">People, with tools</b><span data-e5="and work out what every part does">work out what each routine means</span></li>
+        <li><b data-e5="A clear rewrite">Readable C</b><span data-e5="with real names for everything">named, typed and structured</span></li>
+        <li><b data-e5="Checks">Tests</b><span data-e5="to make sure it acts exactly like the original">check it behaves exactly like the original</span></li>
+        <li><b data-e5="Made fast">C compiler</b><span data-e5="like any other program">optimizes it like any program</span></li>
+        <li class="base"><b data-e5="Ready to play">Native program</b></li>
+      </ol>
+    </article>
+  </div>
+  <div class="stack-foot">
+    <p id="stack-caption" aria-live="polite">While you play, the emulator carries the most machinery and the decompiled game carries the least.</p>
+    <p class="phase-run-only"><span class="swatch" aria-hidden="true"></span><span data-e5="Striped layers are pretend versions of the old machine.">Hatched layers are a model of the SNES hardware.</span></p>
+  </div>
+</section>
+
+<section class="wrap section" id="explore">
+  <div class="prose">
+    <h2>One decision, three ways</h2>
+    <p data-e5="Every moment your hero stands still, the game runs these 20 instructions to decide what to do next. It asks, in this order:">Each frame the player stands still, the game runs these 20 instructions to decide what happens next. They check, in this order:</p>
+    <ol class="rules">
+      <li>Nothing underfoot: fall.</li>
+      <li>B pressed and nothing overhead: jump.</li>
+      <li>Down held: crouch.</li>
+      <li>Left or Right held: run.</li>
+      <li>Otherwise, stand still.</li>
+    </ol>
+    <p data-e5="Pick a situation below, like pressing B, and watch which instructions run. Then flip through the tabs to see the same decision made each way. Point at any line to find its match in the other versions.">Set up a situation and its path through the original code lights up. Switch tabs to follow the same path through each approach, and point at any line to see where it went. Attack and magic are checked just before this routine, so Y, X and A don’t appear here.</p>
+  </div>
+
+  <div class="explorer">
+    <div class="situation">
+      <div class="terrain">
+        <span class="label">Situation</span>
+        <button type="button" class="switch" id="sw-ground" aria-pressed="true">Ground under feet<small data-e5="is there floor under you?">result of the probe at $8FE7</small></button>
+        <button type="button" class="switch" id="sw-ceiling" aria-pressed="false">Low ceiling overhead<small data-e5="is something right above your head?">result of the probe at $8FAD</small></button>
+      </div>
+      <div class="pad-wrap">
+        <div class="pad" role="group" aria-label="Controller">
+          <div class="dpad">
+            <button type="button" class="up" id="pad-up" disabled title="Up isn’t checked by this routine"><span>▲</span></button>
+            <button type="button" class="left" id="pad-left" aria-pressed="false" aria-label="Left"><span>◀</span></button>
+            <span class="mid" aria-hidden="true"></span>
+            <button type="button" class="right" id="pad-right" aria-pressed="false" aria-label="Right"><span>▶</span></button>
+            <button type="button" class="down" id="pad-down" aria-pressed="false" aria-label="Down"><span>▼</span></button>
+          </div>
+          <div class="face">
+            <button type="button" class="fb x" id="pad-x" disabled title="X casts magic, checked before this routine">X</button>
+            <button type="button" class="fb y" id="pad-y" disabled title="Y attacks, checked before this routine">Y</button>
+            <button type="button" class="fb a" id="pad-a" disabled title="A casts magic, checked before this routine">A</button>
+            <button type="button" class="fb b" id="pad-b" aria-pressed="true" aria-label="B (jump)">B</button>
+          </div>
+        </div>
+        <p class="pad-note">B jumps, Down crouches, ◀ and ▶ run. Press to toggle.</p>
+      </div>
+      <div class="outcome" aria-live="polite">
+        <div class="o-top"><span class="label">Result</span><span class="o-main" id="o-main">Jump</span></div>
+        <dl class="o-forms">
+          <div><dt>Original</dt><dd id="o-rom"></dd></div>
+          <div class="emu"><dt>Emulator</dt><dd id="o-emu"></dd></div>
+          <div class="rec"><dt>Recompiled</dt><dd id="o-rec"></dd></div>
+          <div class="dec"><dt>Decompiled</dt><dd id="o-dec"></dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="ex-grid">
+      <div class="listing">
+        <div class="listing-head">
+          <span class="label">Original</span>
+          <h3>65816 machine code</h3>
+          <p class="std">What the SNES CPU runs. <code>X</code> holds the address of the player’s object ($08A0), so <code>$001A,X</code> is the player’s pose.</p>
+          <p class="eli5">The actual instructions, in the old machine’s language. The last column says what each one does in plain words.</p>
+        </div>
+        <div class="lrow lh" aria-hidden="true"><span></span><span>Addr</span><span>Bytes</span><span>Instruction</span><span>What it does</span></div>
+        <div id="listing-rows" role="list" aria-label="Instructions"></div>
+        <div class="legend"><span>● ran</span><span>↷ branch taken</span><span>→ leaves the routine</span><span>faded rows were skipped</span></div>
+      </div>
+
+      <div class="tabset">
+        <div class="tablist" role="tablist" aria-label="Approach">
+          <button type="button" class="tab emu" role="tab" id="tab-emu" aria-selected="true" aria-controls="panel-emu"><span class="dot"></span>Emulator</button>
+          <button type="button" class="tab rec" role="tab" id="tab-rec" aria-selected="false" aria-controls="panel-rec" tabindex="-1"><span class="dot"></span>Recompiled</button>
+          <button type="button" class="tab dec" role="tab" id="tab-dec" aria-selected="false" aria-controls="panel-dec" tabindex="-1"><span class="dot"></span>Decompiled</button>
+        </div>
+
+        <div class="tabpanel emu" role="tabpanel" id="panel-emu" aria-labelledby="tab-emu">
+          <div class="notes eli5">
+            <h3>The live translator</h3>
+            <ul>
+              <li>This is the translator’s rulebook. It knows what every kind of instruction means, but nothing about this game.</li>
+              <li>This piece of the game runs about 60 times a second, and the translator works through it again every single time.</li>
+              <li>All that translating is extra work for your computer, on top of actually playing the game.</li>
+            </ul>
+          </div>
+          <div class="notes std">
+            <h3>An emulator: the game is data, and a loop drives it</h3>
+            <ul>
+              <li>This code knows nothing about the game. <code>case 0xAD</code> runs both <code>LDA $00A1</code> instructions here, and every other absolute <code>LDA</code> in the game.</li>
+              <li>Each time an instruction runs, the emulator fetches its bytes again and works out what they mean, down to whether it is 8-bit or 16-bit (<code>cpu-&gt;m_flag ? … : …</code>). That even decides how many bytes the instruction has.</li>
+              <li>The C compiler optimized this loop, not the game. It never sees that the three instructions at $985B together mean “is B pressed?”, so it can’t simplify them.</li>
+              <li>After every instruction, the graphics, sound and timers have to catch up so the whole console stays in step.</li>
+            </ul>
+          </div>
+          <div class="pane" id="pane-emu" tabindex="0" aria-label="Interpreter code"></div>
+          <p class="src-note eli5">The numbers in the margin count how many times the translator used each rule for the situation you picked.</p>
+          <p class="src-note std">Illustrative. It uses the same <code>Cpu</code> struct and memory helpers as the Recompiled tab, so the two line up. Real emulators differ in detail but share this shape. The counts in the margin show how often each part ran for the situation above.</p>
+        </div>
+
+        <div class="tabpanel rec" role="tabpanel" id="panel-rec" aria-labelledby="tab-rec" hidden>
+          <div class="notes eli5">
+            <h3>The pre-translated book</h3>
+            <ul>
+              <li>This piece was translated once, before you started playing. Each old instruction became a line or two of new code.</li>
+              <li>Nothing needs translating while you play, so your computer has much less extra work to do.</li>
+              <li>But it’s word for word. It still talks about the old machine’s parts, and it never says what any of it is for.</li>
+            </ul>
+          </div>
+          <div class="notes std">
+            <h3>Recompiled: translated once, then compiled to native code</h3>
+            <ul>
+              <li>Each instruction became a line or two of C. The operands are now constants (<code>0x00A1</code>, <code>0x0080</code>), and branches are <code>goto</code>s to labels named after ROM addresses.</li>
+              <li>Nothing reads or decodes the game’s bytes while you play. The C compiler sees the game’s own logic and optimizes it like any other C.</li>
+              <li>It still behaves like a SNES CPU. Registers and flags live in a struct, and <code>mem_read16(cpu-&gt;db, 0x00A1)</code> goes through the translation layer, which maps SNES addresses onto emulated memory and hardware.</li>
+              <li>The translation is exact but nameless. Nothing here says “jump” or “ground”, because the recompiler never learned what any of it means.</li>
+            </ul>
+          </div>
+          <div class="pane" id="pane-rec" tabindex="0" aria-label="Recompiled C code"></div>
+          <p class="src-note" data-e5="A simplified example of what pre-translated code looks like.">Illustrative. Real recompiler output has this shape, but is usually noisier, with extra bookkeeping for calls, interrupts and debugging.</p>
+          <div class="figs">
+            <figure class="fig">
+              <figcaption><span class="std"><b>Why the <code>_M0X0</code> suffix?</b> The 65816 can switch its accumulator between 16 and 8 bits, and the same eight bytes then decode to a different program.</span><span class="eli5"><b>Why the odd name ending in <code>_M0X0</code>?</b> The old machine had two modes, and the same numbers mean different things in each one.</span></figcaption>
+              <div class="mx">
+                <div>
+                  <p class="mx-h">M=0, 16-bit A <span>(as the game runs it)</span></p>
+<pre class="asm"><span class="a">$985E</span>  <span class="b">89 80 00</span>  <span class="m">BIT</span> #$0080
+<span class="a">$9861</span>  <span class="b">F0 03   </span>  <span class="m">BEQ</span> $9866
+<span class="a">$9863</span>  <span class="b">82 73 00</span>  <span class="m">BRL</span> $98D9</pre>
+                </div>
+                <div>
+                  <p class="mx-h">M=1, 8-bit A</p>
+<pre class="asm"><span class="a">$985E</span>  <span class="b">89 80</span>  <span class="m">BIT</span> #$80
+<span class="bad"><span class="a">$9860</span>  <span class="b">00 F0</span>  <span class="m">BRK</span> <span class="o">#$F0</span></span>
+<span class="bad"><span class="a">$9862</span>  <span class="b">03 82</span>  <span class="m">ORA</span> <span class="o">$82,S</span></span>
+<span class="bad"><span class="a">$9864</span>  <span class="b">73 00</span>  <span class="m">ADC</span> <span class="o">($00,S),Y</span></span></pre>
+                </div>
+              </div>
+              <p data-e5="The live translator checks the mode as it goes. The book translator has to decide ahead of time, so it writes one version for each mode.">An emulator checks the M flag as it goes. A recompiler has to settle it before writing any C, so it emits a separate translation for each mode a routine is entered in, and calls the one that matches.</p>
+            </figure>
+            <figure class="fig">
+              <figcaption><span class="std"><b>Where did the program counter go?</b> This is all the CPU state the recompiled code needs. There is no PC.</span><span class="eli5"><b>No bookmark needed.</b> This is everything the pre-translated game has to remember about the old machine.</span></figcaption>
+              <pre class="code" data-src="src-cpu"></pre>
+              <p class="std">In recompiled code the next instruction is simply the next line of compiled C, and a <code>JSR</code> becomes an ordinary function call. The emulator has to keep <code>pc</code> itself and move it along byte by byte.</p>
+              <p class="eli5">The live translator has to keep a bookmark of exactly where it is. The pre-translated game just runs from one line to the next, so it doesn’t need one.</p>
+            </figure>
+          </div>
+        </div>
+
+        <div class="tabpanel dec" role="tabpanel" id="panel-dec" aria-labelledby="tab-dec" hidden>
+          <div class="notes eli5">
+            <h3>Rewritten in plain words</h3>
+            <ul>
+              <li>Someone worked out what this piece is for and rewrote it so people can read it.</li>
+              <li>It reads almost like a sentence: if there’s no floor, fall. If you pressed jump and nothing is above you, jump.</li>
+              <li>Because it’s clear, it’s easy to fix, change, or add new moves to.</li>
+            </ul>
+          </div>
+          <div class="notes std">
+            <h3>Decompiled: rewritten as ordinary code</h3>
+            <ul>
+              <li>The decision in these 20 instructions became five lines. Names replace numbers: bit <code>$80</code> of <code>$00A1</code> is <code>jump_pressed</code>, and the carry flag after <code>JSR $8FE7</code> is <code>on_ground</code>.</li>
+              <li>There are no registers, flags, addresses or ROM. It is a plain function you can read, test and change without any model of the SNES.</li>
+              <li>The rules are easy to see now. Falling beats everything, a low ceiling cancels a jump, and crouching beats running.</li>
+              <li>It can grow past the original. A new move is one more line, and nothing here depends on SNES timing or memory layout.</li>
+            </ul>
+          </div>
+          <div class="pane" id="pane-dec" tabindex="0" aria-label="Decompiled C code"></div>
+          <p class="src-note" data-e5="A simplified example. The people doing the rewrite choose the names.">Illustrative. The names are chosen by whoever does the decompiling. A faithful decompilation keeps the original’s order of side effects, which is why the two probe results arrive as inputs instead of being called in here.</p>
+          <figure class="fig">
+            <figcaption><span class="std"><b>Testable without a SNES.</b> No ROM, no CPU state, no emulated memory.</span><span class="eli5"><b>Easy to check.</b> You can test the rewrite without any old machine at all.</span></figcaption>
+            <pre class="code" data-src="src-test"></pre>
+            <p data-e5="Each line sets up a situation and checks the answer, like a quiz.">The situation starts with B and Down held, moving right, and nothing underfoot. Each line changes one thing and checks the decision.</p>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap section" id="hybrid">
+  <div class="prose">
+    <h2>Real projects mix all three</h2>
+    <p data-e5="You don’t have to pick just one. A project can translate most of a game ahead of time, keep a live translator for a few small parts, and slowly rewrite pieces in plain words.">These aren’t exclusive choices. A recompiled game still needs something to play the part of the hardware, a project can leave some chips emulated, and decompiled code can replace recompiled code one routine at a time.</p>
+  </div>
+  <ul class="parts">
+    <li class="rec"><b><span class="dot"></span>Recompiled</b><span data-e5="Most of the game, translated ahead of time">The main CPU’s game code</span></li>
+    <li class="layer"><b><span class="swatch" aria-hidden="true"></span>Translation layer</b><span data-e5="Stand-in parts for the old machine">Memory map, graphics, DMA and timing</span></li>
+    <li class="emu"><b><span class="dot"></span>Emulated</b><span data-e5="A few small chips, still translated live, like the sound chip">Coprocessors, such as the SNES’s SPC700 sound CPU</span></li>
+    <li class="dec"><b><span class="dot"></span>Decompiled</b><span data-e5="Pieces rewritten in plain words, one at a time">Gameplay, one routine at a time</span></li>
+  </ul>
+  <div class="prose">
+    <p data-e5="Here’s how a rewritten piece can quietly take over from the translated one.">Here is one way a decompiled routine can take over from recompiled code without changing anything around it.</p>
+  </div>
+  <ol class="steps">
+    <li class="rec">
+      <div class="step-body">
+        <div class="step-text">
+          <h3 data-e5="First, check for a rewritten version">The recompiled function checks for a replacement</h3>
+          <p data-e5="Before running the translated code, the game checks whether a rewritten version of this piece is ready. If it is, the rewrite takes over. If not, the translated code runs like before.">A hook at the top hands control to the decompiled version, but only when the machine is in the state the replacement expects, such as 16-bit registers. Otherwise the recompiled body runs, so the original stays available to compare against.</p>
+        </div>
+        <pre class="code" data-src="src-hook"></pre>
+      </div>
+    </li>
+    <li class="dec">
+      <div class="step-body">
+        <div class="step-text">
+          <h3 data-e5="A go-between connects them">An adapter translates between the machine and the types</h3>
+          <p class="std">It still calls the original probe routines in the original order, reads the same buttons and D-pad value, asks <code>choose_idle_action</code> for a decision, and turns the answer back into the address the original would continue at.</p>
+          <p class="eli5">The rewrite speaks in plain words, but the rest of the game still speaks the old machine’s language. A small go-between collects what the rewrite needs to know, asks it what to do, and passes the answer back.</p>
+          <p data-e5="It’s careful to leave everything exactly how the old code would have, so the rest of the game can’t tell the difference.">A careful adapter also leaves registers and flags the way the original would have, because recompiled code that runs next may read them.</p>
+        </div>
+        <pre class="code" data-src="src-adapter"></pre>
+      </div>
+    </li>
+  </ol>
+  <p class="prose closing" data-e5="Piece by piece, more of the game gets rewritten. In the end it doesn’t need to pretend to be the old machine at all, and people can add things the original never could.">Each routine that moves across leaves the adapters less to translate. Once nothing is left, that part of the game no longer needs the SNES model at all, and it can grow past what the original hardware allowed.</p>
+</section>
+
+<section class="wrap section" id="glance">
+  <div class="prose">
+    <h2>At a glance</h2>
+  </div>
+  <div class="tbl eli5">
+    <table>
+      <thead>
+        <tr>
+          <td></td>
+          <th scope="col" class="emu"><span class="dot"></span>Emulation</th>
+          <th scope="col" class="rec"><span class="dot"></span>Recompilation</th>
+          <th scope="col" class="dec"><span class="dot"></span>Decompilation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">In one line</th><td>A live translator</td><td>Translate the whole book first</td><td>Rewrite it in plain words</td></tr>
+        <tr><th scope="row">When does the translating happen?</th><td>While you play, nonstop</td><td>Once, before you play</td><td>Once, by people, before you play</td></tr>
+        <tr><th scope="row">Extra work while you play</th><td>Lots</td><td>A little, for the stand-in parts</td><td>Almost none</td></tr>
+        <tr><th scope="row">Can people read it?</th><td>No</td><td>Barely</td><td>Yes</td></tr>
+        <tr><th scope="row">Easy to change the game?</th><td>Hard</td><td>Possible</td><td>Easy</td></tr>
+        <tr><th scope="row">Work to support a new game</th><td>None, it works with any game</td><td>Some</td><td>A lot</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tbl std">
+    <table>
+      <thead>
+        <tr>
+          <td></td>
+          <th scope="col" class="emu"><span class="dot"></span>Emulation</th>
+          <th scope="col" class="rec"><span class="dot"></span>Recompilation</th>
+          <th scope="col" class="dec"><span class="dot"></span>Decompilation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">When the game’s code is translated</th><td>While you play, every instruction, every time it runs</td><td>Once, before you play, by a tool</td><td>Once, before you play, by people using tools</td></tr>
+        <tr><th scope="row">What your CPU runs</th><td>The emulator’s loop. The game is data.</td><td>The game as native code, on a translation layer</td><td>The game’s logic as native code</td></tr>
+        <tr><th scope="row">Model of the SNES needed</th><td>All of it</td><td>CPU state, memory map, graphics, sound</td><td>None</td></tr>
+        <tr><th scope="row">Main runtime overhead</th><td>Fetching, decoding and dispatching every instruction, plus simulating the hardware in step</td><td>The translation layer: emulated memory and hardware, SNES-style flags</td><td>Nothing inherited from the SNES</td></tr>
+        <tr><th scope="row">Work per game</th><td>None. One emulator runs the whole library.</td><td>Teach the tool the game: what is code, which CPU modes, where jump tables lead</td><td>Understand, name, rewrite and test each routine</td></tr>
+        <tr><th scope="row">Readable source</th><td>None</td><td>Exact but nameless (<code>L_9866</code>, <code>cpu-&gt;flag_z</code>)</td><td>Names, types and structure</td></tr>
+        <tr><th scope="row">Changing the game</th><td>Patch bytes in the ROM</td><td>Hooks and patches around translated code</td><td>Edit it like any program</td></tr>
+        <tr><th scope="row">How it stays faithful</th><td>Reproduce the hardware</td><td>Reproduce every instruction’s effect</td><td>Test against the original</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer class="wrap foot">
+  <h2>Notes</h2>
+  <ul>
+    <li>The bytes are from ActRaiser (SNES, North American release), bank $00, address $984E. The second decoding in the Recompiled tab disassembles the same bytes with an 8-bit accumulator.</li>
+    <li>All C code on this page is illustrative and written to line up across the tabs. Real emulators, recompilers and decompilation projects differ in detail but share these shapes.</li>
+  </ul>
+  <p>ActRaiser © 1990 Enix / Quintet. The short excerpt of the game’s code is shown for commentary.</p>
+</footer>
+
+<!-- Code samples. Lines starting with "@@" split a sample into rows and map each row to the
+     instruction addresses ($984E…) or opcode bytes (op:AD) it corresponds to. -->
+<script type="text/plain" id="src-emu">
+@@ -
+/* An interpreter for the instructions in this routine. It uses the same
+ * Cpu struct and memory helpers as the Recompiled tab, so the two line up. */
+typedef struct Emulator {
+    Cpu      cpu;      /* registers and flags                             */
+    uint16_t pc;       /* program counter: where the next byte comes from */
+    uint32_t cycles;   /* CPU time used, so the other chips keep pace     */
+} Emulator;
+
+static uint8_t  fetch8(Emulator *e);                 /* helpers are at the bottom */
+static uint16_t fetch16(Emulator *e);
+static void     branch(Emulator *e, bool taken);
+
+void emulate(Emulator *e) {
+    Cpu *cpu = &e->cpu;
+    for (;;) {
+@@ loop:fetch
+        uint8_t op = fetch8(e);                      /* 1. fetch   */
+@@ loop:decode
+        switch (op) {                                /* 2. decode  */
+                                                     /* 3. execute */
+@@ op:20
+        case 0x20: {                                 /* JSR abs */
+            uint16_t target = fetch16(e);
+            uint16_t ret = e->pc - 1;                /* push the return address */
+            mem_write8(0x00, cpu->s--, ret >> 8);
+            mem_write8(0x00, cpu->s--, ret & 0xFF);
+            e->pc = target;
+            e->cycles += 6;
+            break;
+        }
+@@ op:82
+        case 0x82: {                                 /* BRL */
+            int16_t rel = (int16_t)fetch16(e);
+            e->pc += rel;
+            e->cycles += 4;
+            break;
+        }
+@@ op:B0
+        case 0xB0: branch(e, cpu->flag_c);  break;   /* BCS */
+@@ op:F0
+        case 0xF0: branch(e, cpu->flag_z);  break;   /* BEQ */
+@@ op:D0
+        case 0xD0: branch(e, !cpu->flag_z); break;   /* BNE */
+@@ op:AD
+        case 0xAD: {                                 /* LDA abs */
+            uint16_t addr = fetch16(e);              /* the operand comes from the ROM, every time */
+            uint16_t v = cpu->m_flag ? mem_read8(cpu->db, addr)
+                                     : mem_read16(cpu->db, addr);
+            set_a(cpu, v);                           /* 8-bit mode keeps the high byte */
+            cpu->flag_z = (v == 0);
+            cpu->flag_n = (v & (cpu->m_flag ? 0x80 : 0x8000)) != 0;
+            e->cycles += cpu->m_flag ? 4 : 5;
+            break;
+        }
+@@ op:A5
+        case 0xA5: {                                 /* LDA dp */
+            uint16_t addr = cpu->d + fetch8(e);
+            uint16_t v = cpu->m_flag ? mem_read8(0x00, addr)
+                                     : mem_read16(0x00, addr);
+            set_a(cpu, v);
+            cpu->flag_z = (v == 0);
+            cpu->flag_n = (v & (cpu->m_flag ? 0x80 : 0x8000)) != 0;
+            e->cycles += (cpu->m_flag ? 3 : 4) + ((cpu->d & 0xFF) ? 1 : 0);
+            break;
+        }
+@@ op:A9
+        case 0xA9: {                                 /* LDA #imm */
+            uint16_t v = cpu->m_flag ? fetch8(e) : fetch16(e);   /* even the length depends on M */
+            set_a(cpu, v);
+            cpu->flag_z = (v == 0);
+            cpu->flag_n = (v & (cpu->m_flag ? 0x80 : 0x8000)) != 0;
+            e->cycles += cpu->m_flag ? 2 : 3;
+            break;
+        }
+@@ op:89
+        case 0x89: {                                 /* BIT #imm */
+            uint16_t imm = cpu->m_flag ? fetch8(e) : fetch16(e);
+            cpu->flag_z = (cpu->a & imm) == 0;
+            e->cycles += cpu->m_flag ? 2 : 3;
+            break;
+        }
+@@ op:9D op:9E
+        case 0x9D:                                   /* STA abs,X */
+        case 0x9E: {                                 /* STZ abs,X */
+            uint16_t addr = fetch16(e) + cpu->x;
+            uint16_t v = (op == 0x9D) ? cpu->a : 0;
+            if (cpu->m_flag) mem_write8(cpu->db, addr, (uint8_t)v);
+            else             mem_write16(cpu->db, addr, v);
+            e->cycles += cpu->m_flag ? 5 : 6;
+            break;
+        }
+@@ -
+        /* ...and the other 245 opcodes */
+        }
+@@ loop:sync
+        hardware_catch_up(e);        /* 4. graphics, sound, DMA and timers catch up */
+@@ -
+    }
+}
+
+static uint8_t fetch8(Emulator *e) {
+    return mem_read8(e->cpu.pb, e->pc++);
+}
+static uint16_t fetch16(Emulator *e) {
+    uint16_t v = mem_read16(e->cpu.pb, e->pc);
+    e->pc += 2;
+    return v;
+}
+static void branch(Emulator *e, bool taken) {
+    int8_t rel = (int8_t)fetch8(e);
+    e->cycles += 2;
+    if (taken) { e->pc += rel; e->cycles += 1; }
+}
+</script>
+
+<script type="text/plain" id="src-rec">
+@@ -
+/* Translated once, ahead of time, from the routine at $00:984E.
+ * _M0X0: this copy assumes a 16-bit accumulator and 16-bit X/Y. */
+void func_00_984E_M0X0(Cpu *cpu) {
+@@ 984E
+    func_00_8FE7_M0X0(cpu);
+@@ 9851
+    if (cpu->flag_c) goto L_9856;
+@@ 9853
+    func_00_9996_M0X0(cpu);
+    return;
+@@ 9856
+L_9856:
+    func_00_8FAD_M0X0(cpu);
+@@ 9859
+    if (cpu->flag_c) goto L_9866;
+@@ 985B
+    cpu->a = mem_read16(cpu->db, 0x00A1);
+    cpu->flag_z = (cpu->a == 0);
+    cpu->flag_n = (cpu->a & 0x8000) != 0;
+@@ 985E
+    cpu->flag_z = (cpu->a & 0x0080) == 0;
+@@ 9861
+    if (cpu->flag_z) goto L_9866;
+@@ 9863
+    func_00_98D9_M0X0(cpu);
+    return;
+@@ 9866
+L_9866:
+    cpu->a = mem_read16(cpu->db, 0x00A1);
+    cpu->flag_z = (cpu->a == 0);
+    cpu->flag_n = (cpu->a & 0x8000) != 0;
+@@ 9869
+    cpu->flag_z = (cpu->a & 0x0004) == 0;
+@@ 986C
+    if (cpu->flag_z) goto L_9871;
+@@ 986E
+    func_00_9A07_M0X0(cpu);
+    return;
+@@ 9871
+L_9871:
+    cpu->a = mem_read16(0x00, cpu->d + 0x7C);
+    cpu->flag_z = (cpu->a == 0);
+    cpu->flag_n = (cpu->a & 0x8000) != 0;
+@@ 9873
+    if (!cpu->flag_z) { func_00_9884_M0X0(cpu); return; }
+@@ 9875
+    cpu->a = 0x0000;
+    cpu->flag_z = (cpu->a == 0);
+    cpu->flag_n = (cpu->a & 0x8000) != 0;
+@@ 9878
+    mem_write16(cpu->db, 0x001A + cpu->x, cpu->a);
+@@ 987B
+    mem_write16(cpu->db, 0x001C + cpu->x, 0x0000);
+@@ 987E
+    func_00_8E2F_M0X0(cpu);
+@@ 9881
+    func_00_9D4F_M0X0(cpu);
+    return;
+@@ -
+}
+</script>
+
+<script type="text/plain" id="src-dec">
+@@ -
+/* What the routine decides, rewritten by hand. */
+PlayerAction choose_idle_action(IdleSituation s) {
+@@ 984E 9851 9853
+    if (!s.on_ground)                       return PLAYER_FALL;
+@@ 9856 9859 985B 985E 9861 9863
+    if (!s.ceiling_above && s.jump_pressed) return PLAYER_JUMP;
+@@ 9866 9869 986C 986E
+    if (s.crouch_held)                      return PLAYER_CROUCH;
+@@ 9871 9873
+    if (s.horizontal != 0)                  return PLAYER_RUN;
+@@ 9875 9878 987B 987E 9881
+    return PLAYER_IDLE;
+@@ -
+}
+
+/* ...and the types it uses */
+typedef struct IdleSituation {
+@@ type 984E
+    bool on_ground;        /* from the ground probe          */
+@@ type 9856
+    bool ceiling_above;    /* from the ceiling probe         */
+@@ type 985B 985E
+    bool jump_pressed;     /* B button                       */
+@@ type 9866 9869
+    bool crouch_held;      /* Down on the D-pad              */
+@@ type 9871
+    int  horizontal;       /* D-pad left/right: -2, 0 or +2  */
+@@ -
+} IdleSituation;
+
+typedef enum PlayerAction {
+@@ type 9875 9878 987B 987E 9881
+    PLAYER_IDLE,           /* standing pose, animation restarted */
+@@ type 9873
+    PLAYER_RUN,
+@@ type 9863
+    PLAYER_JUMP,
+@@ type 986E
+    PLAYER_CROUCH,
+@@ type 9853
+    PLAYER_FALL,
+@@ -
+} PlayerAction;
+</script>
+
+<script type="text/plain" id="src-test">
+IdleSituation s = { .on_ground = false, .ceiling_above = false,
+                    .jump_pressed = true, .crouch_held = true, .horizontal = 2 };
+assert(choose_idle_action(s) == PLAYER_FALL);
+s.on_ground = true;
+assert(choose_idle_action(s) == PLAYER_JUMP);
+s.ceiling_above = true;
+assert(choose_idle_action(s) == PLAYER_CROUCH);
+s.crouch_held = false;
+assert(choose_idle_action(s) == PLAYER_RUN);
+s.horizontal = 0;
+assert(choose_idle_action(s) == PLAYER_IDLE);
+</script>
+
+<script type="text/plain" id="src-cpu">
+typedef struct Cpu {
+    uint16_t a, x, y;                 /* accumulator and index registers */
+    uint16_t s, d;                    /* stack pointer and direct page   */
+    uint8_t  db, pb;                  /* data bank and program bank      */
+    bool     m_flag, x_flag;          /* 8- or 16-bit A, and X/Y         */
+    bool     flag_n, flag_v, flag_z, flag_c;   /* plus I, D and emulation mode */
+} Cpu;
+</script>
+
+<script type="text/plain" id="src-hook">
+void func_00_984E_M0X0(Cpu *cpu) {
+    if (replacement_ready(cpu)) {        /* hook: 16-bit modes, expected object */
+        idle_adapter(cpu);
+        return;
+    }
+    func_00_8FE7_M0X0(cpu);
+    if (cpu->flag_c) goto L_9856;
+    /* ...the rest of the recompiled body from the Recompiled tab... */
+}
+</script>
+
+<script type="text/plain" id="src-adapter">
+static void idle_adapter(Cpu *cpu) {
+    IdleSituation s = {0};
+    s.on_ground = call_original(cpu, 0x8FE7);         /* same probes, same order */
+    if (s.on_ground)
+        s.ceiling_above = call_original(cpu, 0x8FAD);
+
+    uint16_t buttons = mem_read16(cpu->db, 0x00A1);
+    s.jump_pressed = (buttons & 0x0080) != 0;
+    s.crouch_held  = (buttons & 0x0004) != 0;
+    s.horizontal   = (int16_t)mem_read16(0x00, cpu->d + 0x7C);
+
+    switch (choose_idle_action(s)) {
+    case PLAYER_FALL:   continue_at(cpu, 0x9996); break;
+    case PLAYER_JUMP:   continue_at(cpu, 0x98D9); break;
+    case PLAYER_CROUCH: continue_at(cpu, 0x9A07); break;
+    case PLAYER_RUN:    continue_at(cpu, 0x9884); break;
+    case PLAYER_IDLE:   start_idle_pose(cpu);
+                        continue_at(cpu, 0x9D4F); break;
+    }
+}
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- the routine: $00:984E-$00:9883 ------------------------------------
+  var INSNS = [
+    { a: '984E', by: '20 E7 8F', mn: 'JSR', arg: '$8FE7',   note: 'Probe below the feet (carry set = solid ground)' },
+    { a: '9851', by: 'B0 03',    mn: 'BCS', arg: '$9856',   note: 'Standing on something? Skip ahead' },
+    { a: '9853', by: '82 40 01', mn: 'BRL', arg: '$9996',   note: 'Nothing below: fall' },
+    { a: '9856', by: '20 AD 8F', mn: 'JSR', arg: '$8FAD',   note: 'Probe above the head (carry set = blocked)' },
+    { a: '9859', by: 'B0 0B',    mn: 'BCS', arg: '$9866',   note: 'Ceiling? Skip the jump check' },
+    { a: '985B', by: 'AD A1 00', mn: 'LDA', arg: '$00A1',   note: 'Read the buttons' },
+    { a: '985E', by: '89 80 00', mn: 'BIT', arg: '#$0080',  note: 'Test the B button' },
+    { a: '9861', by: 'F0 03',    mn: 'BEQ', arg: '$9866',   note: 'Not pressed? Skip' },
+    { a: '9863', by: '82 73 00', mn: 'BRL', arg: '$98D9',   note: 'Jump' },
+    { a: '9866', by: 'AD A1 00', mn: 'LDA', arg: '$00A1',   note: 'Read the buttons again' },
+    { a: '9869', by: '89 04 00', mn: 'BIT', arg: '#$0004',  note: 'Test Down' },
+    { a: '986C', by: 'F0 03',    mn: 'BEQ', arg: '$9871',   note: 'Not held? Skip' },
+    { a: '986E', by: '82 96 01', mn: 'BRL', arg: '$9A07',   note: 'Crouch' },
+    { a: '9871', by: 'A5 7C',    mn: 'LDA', arg: '$7C',     note: 'D-pad left/right: −2, 0 or +2' },
+    { a: '9873', by: 'D0 0F',    mn: 'BNE', arg: '$9884',   note: 'Moving? Run' },
+    { a: '9875', by: 'A9 00 00', mn: 'LDA', arg: '#$0000',  note: 'Pose 0 means standing' },
+    { a: '9878', by: '9D 1A 00', mn: 'STA', arg: '$001A,X', note: 'Set the player’s pose' },
+    { a: '987B', by: '9E 1C 00', mn: 'STZ', arg: '$001C,X', note: 'Restart its animation' },
+    { a: '987E', by: '20 2F 8E', mn: 'JSR', arg: '$8E2F',   note: 'Apply the first animation step' },
+    { a: '9881', by: '82 CB 04', mn: 'BRL', arg: '$9D4F',   note: 'On to the end-of-frame checks' }
+  ];
+  var BY_ADDR = {};
+  INSNS.forEach(function (i) {
+    i.op = i.by.slice(0, 2);
+    i.len = i.by.split(' ').length;
+    BY_ADDR[i.a] = i;
+  });
+
+  var EXITS = {
+    fall:   { name: 'Fall',        at: '9853', ev: 'PLAYER_FALL',   checks: 1 },
+    jump:   { name: 'Jump',        at: '9863', ev: 'PLAYER_JUMP',   checks: 2 },
+    crouch: { name: 'Crouch',      at: '986E', ev: 'PLAYER_CROUCH', checks: 3 },
+    run:    { name: 'Run',         at: '9873', ev: 'PLAYER_RUN',    checks: 4 },
+    idle:   { name: 'Stand still', at: '9881', ev: 'PLAYER_IDLE',   checks: 4 }
+  };
+
+  // Follow the routine's branches for a situation. This mirrors the
+  // decompiled logic; it does not interpret the bytes.
+  function trace(s) {
+    var p = ['984E', '9851'];
+    var taken = {};
+    if (!s.ground) { p.push('9853'); return { p: p, taken: taken, exit: 'fall' }; }
+    taken['9851'] = true;
+    p.push('9856', '9859');
+    if (s.ceiling) {
+      taken['9859'] = true;
+    } else {
+      p.push('985B', '985E', '9861');
+      if (s.b) { p.push('9863'); return { p: p, taken: taken, exit: 'jump' }; }
+      taken['9861'] = true;
+    }
+    p.push('9866', '9869', '986C');
+    if (s.down) { p.push('986E'); return { p: p, taken: taken, exit: 'crouch' }; }
+    taken['986C'] = true;
+    p.push('9871', '9873');
+    if (s.dir !== 0) { taken['9873'] = true; return { p: p, taken: taken, exit: 'run' }; }
+    p.push('9875', '9878', '987B', '987E', '9881');
+    return { p: p, taken: taken, exit: 'idle' };
+  }
+
+  // ---- syntax highlighting -------------------------------------------------
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var KW = {};
+  'if else return goto switch case break default for while do typedef struct enum static const extern sizeof true false'
+    .split(' ').forEach(function (w) { KW[w] = 1; });
+  var TY = {};
+  'void bool int char unsigned uint8_t uint16_t uint32_t int8_t int16_t int32_t Cpu Emulator PlayerAction IdleSituation'
+    .split(' ').forEach(function (w) { TY[w] = 1; });
+  var TOKEN = /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*")|(\b0x[0-9a-fA-F]+u?\b|\b\d+u?\b)|([A-Za-z_]\w*)|([\s\S])/g;
+  function highlightC(src) {
+    var out = '';
+    var m;
+    TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(src)) !== null) {
+      if (m[1]) out += '<span class="t-com">' + esc(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="t-str">' + esc(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="t-num">' + m[3] + '</span>';
+      else if (m[4]) {
+        var w = m[4];
+        if (KW[w]) out += '<span class="t-kw">' + w + '</span>';
+        else if (TY[w]) out += '<span class="t-ty">' + w + '</span>';
+        else if (/^L_[0-9A-F]{4}$/.test(w)) out += '<span class="t-lbl">' + w + '</span>';
+        else if (src.charAt(TOKEN.lastIndex) === '(') out += '<span class="t-fn">' + w + '</span>';
+        else out += w;
+      } else out += esc(m[5]);
+    }
+    return out;
+  }
+  function readSrc(id) {
+    var el = document.getElementById(id);
+    return el ? el.textContent.replace(/^\n+/, '').replace(/\s+$/, '') : '';
+  }
+  function renderPre(pre) {
+    pre.innerHTML = '<code>' + highlightC(readSrc(pre.getAttribute('data-src'))) + '</code>';
+  }
+
+  // ---- hero: decode the bytes -------------------------------------------
+  function showDecode(i) {
+    $('#decode').innerHTML =
+      '<span class="d-ad">$00:' + i.a + '</span>' +
+      '<span class="d-by">' + i.by + '</span>' +
+      '<span class="d-ar" aria-hidden="true">→</span>' +
+      '<span class="d-as"><b>' + i.mn + '</b> ' + esc(i.arg) + '</span>' +
+      '<span class="d-cm">' + esc(i.note) + '</span>';
+    $$('#tape button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-a') === i.a); });
+  }
+  function buildTape() {
+    var tape = $('#tape');
+    INSNS.forEach(function (i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = i.by;
+      b.setAttribute('data-a', i.a);
+      b.setAttribute('aria-label', '$' + i.a + ': ' + i.by + ', ' + i.mn + ' ' + i.arg);
+      var show = function () { showDecode(i); };
+      b.addEventListener('pointerenter', show);
+      b.addEventListener('focus', show);
+      b.addEventListener('click', show);
+      tape.appendChild(b);
+    });
+  }
+
+  // ---- phase toggle --------------------------------------------------------
+  var CAPTIONS = {
+    run: 'While you play, the emulator carries the most machinery and the decompiled game carries the least.',
+    build: 'Before you play, the order flips. Decompilation takes the most work up front, and emulation takes none for any particular game.'
+  };
+  var CAPTIONS_E5 = {
+    run: 'While you play, the live translator is always busy. The rewritten game has the least going on underneath it.',
+    build: 'Before you play, it’s the other way around. Rewriting takes the most work up front, and the live translator needs none.'
+  };
+  var eli5 = false;
+  var phase = 'run';
+  function setPhase(p) {
+    phase = p;
+    $('#stacks').setAttribute('data-phase', p);
+    $('#phase-run').setAttribute('aria-pressed', String(p === 'run'));
+    $('#phase-build').setAttribute('aria-pressed', String(p === 'build'));
+    $('#stack-caption').textContent = (eli5 ? CAPTIONS_E5 : CAPTIONS)[p];
+    $$('.phase-run-only').forEach(function (el) { el.hidden = p !== 'run'; });
+  }
+
+  // ---- explorer: listing and code panes -----------------------------------
+  var listingRows = [];
+  var codeRows = { emu: [], rec: [], dec: [] };
+
+  function buildListing() {
+    var box = $('#listing-rows');
+    INSNS.forEach(function (i) {
+      var ln = document.createElement('div');
+      ln.className = 'ln';
+      ln.tabIndex = 0;
+      ln.setAttribute('role', 'listitem');
+      ln.setAttribute('data-a', i.a);
+      ln.setAttribute('data-op', i.op);
+      ln.innerHTML =
+        '<span class="mk" aria-hidden="true"></span>' +
+        '<span class="ad">$' + i.a + '</span>' +
+        '<span class="by">' + i.by + '</span>' +
+        '<span class="as"><b>' + i.mn + '</b> ' + esc(i.arg) + '</span>' +
+        '<span class="cm">' + esc(i.note) + '</span>';
+      box.appendChild(ln);
+      listingRows.push(ln);
+    });
+  }
+
+  function parseRows(src) {
+    var rows = [];
+    var cur = null;
+    src.split('\n').forEach(function (line) {
+      if (line.indexOf('@@') === 0) {
+        cur = { tags: line.slice(2).trim().split(/\s+/).filter(function (t) { return t && t !== '-'; }), lines: [] };
+        rows.push(cur);
+      } else {
+        if (!cur) { cur = { tags: [], lines: [] }; rows.push(cur); }
+        cur.lines.push(line);
+      }
+    });
+    return rows.filter(function (r) { return r.lines.length; });
+  }
+
+  function gutterHTML(kind, addrs, ops, loop) {
+    if (kind === 'emu') {
+      if (ops.length) return '<span class="g-ad">' + ops.map(function (o) { return '$' + o; }).join(' ') + '</span><span class="hits"></span>';
+      if (loop) return '<span class="hits"></span>';
+      return '';
+    }
+    if (!addrs.length) return '';
+    if (addrs.length === 1) {
+      var i = BY_ADDR[addrs[0]];
+      return '<span class="g-ad">$' + i.a + '</span><span class="g-as">' + esc(i.mn + ' ' + i.arg) + '</span>';
+    }
+    return '<span class="g-ad">$' + addrs[0] + '–$' + addrs[addrs.length - 1] + '</span>';
+  }
+
+  function buildPane(kind) {
+    var pane = document.getElementById('pane-' + kind);
+    var rowsEl = document.createElement('div');
+    rowsEl.className = 'rows';
+    parseRows(readSrc('src-' + kind)).forEach(function (r) {
+      var addrs = r.tags.filter(function (t) { return /^[0-9A-F]{4}$/.test(t); });
+      var ops = r.tags.filter(function (t) { return t.indexOf('op:') === 0; }).map(function (t) { return t.slice(3); });
+      var loop = r.tags.filter(function (t) { return t.indexOf('loop:') === 0; })[0];
+      var row = document.createElement('div');
+      row.className = 'row';
+      if (addrs.length) row.setAttribute('data-addrs', addrs.join(' '));
+      if (ops.length) row.setAttribute('data-ops', ops.join(' '));
+      if (loop) row.setAttribute('data-loop', loop.slice(5));
+      if (r.tags.indexOf('type') >= 0) row.setAttribute('data-kind', 'type');
+      var gut = document.createElement('span');
+      gut.className = 'gut';
+      gut.innerHTML = gutterHTML(kind, addrs, ops, loop);
+      var pre = document.createElement('pre');
+      pre.innerHTML = highlightC(r.lines.join('\n'));
+      row.appendChild(gut);
+      row.appendChild(pre);
+      rowsEl.appendChild(row);
+      codeRows[kind].push(row);
+    });
+    pane.appendChild(rowsEl);
+  }
+
+  function listOf(el, attr) {
+    var v = el.getAttribute(attr);
+    return v ? v.split(' ') : [];
+  }
+
+  // ---- cross-highlighting --------------------------------------------------
+  var pinned = null;
+  function clearMarks() { $$('.xhl').forEach(function (el) { el.classList.remove('xhl'); }); }
+  function markFromListing(ln) {
+    clearMarks();
+    ln.classList.add('xhl');
+    var a = ln.getAttribute('data-a');
+    var op = ln.getAttribute('data-op');
+    codeRows.rec.concat(codeRows.dec).forEach(function (r) {
+      if (listOf(r, 'data-addrs').indexOf(a) >= 0) r.classList.add('xhl');
+    });
+    codeRows.emu.forEach(function (r) {
+      if (listOf(r, 'data-ops').indexOf(op) >= 0) r.classList.add('xhl');
+    });
+  }
+  function markFromRow(row) {
+    clearMarks();
+    row.classList.add('xhl');
+    var addrs = listOf(row, 'data-addrs');
+    var ops = listOf(row, 'data-ops');
+    listingRows.forEach(function (ln) {
+      if (addrs.indexOf(ln.getAttribute('data-a')) >= 0 || ops.indexOf(ln.getAttribute('data-op')) >= 0) ln.classList.add('xhl');
+    });
+  }
+  function mark(el) {
+    if (!el) { clearMarks(); return; }
+    if (el.classList.contains('ln')) markFromListing(el); else markFromRow(el);
+  }
+  function activePane() {
+    var panel = $$('[role="tabpanel"]').filter(function (p) { return !p.hidden; })[0];
+    return panel ? $('.pane', panel) : null;
+  }
+  function scrollToMapped(ln) {
+    var pane = activePane();
+    if (!pane) return;
+    var a = ln.getAttribute('data-a');
+    var op = ln.getAttribute('data-op');
+    var target = $$('.row', pane).filter(function (r) {
+      return listOf(r, 'data-addrs').indexOf(a) >= 0 || listOf(r, 'data-ops').indexOf(op) >= 0;
+    })[0];
+    if (!target) return;
+    var top = Math.max(0, target.offsetTop - pane.clientHeight / 3);
+    if (pane.scrollTo) pane.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
+    else pane.scrollTop = top;
+  }
+  function bindHover(el, onClick) {
+    el.addEventListener('pointerenter', function () { mark(el); });
+    el.addEventListener('pointerleave', function () { mark(pinned); });
+    el.addEventListener('focus', function () { mark(el); });
+    el.addEventListener('blur', function () { mark(pinned); });
+    el.addEventListener('click', function () {
+      pinned = pinned === el ? null : el;
+      mark(pinned || el);
+      if (onClick) onClick();
+    });
+  }
+
+  // ---- situation -----------------------------------------------------------
+  var state = { ground: true, ceiling: false, b: true, down: false, dir: 0 };
+
+  function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
+  function syncControls() {
+    setPressed('sw-ground', state.ground);
+    setPressed('sw-ceiling', state.ceiling);
+    setPressed('pad-b', state.b);
+    setPressed('pad-down', state.down);
+    setPressed('pad-left', state.dir === -1);
+    setPressed('pad-right', state.dir === 1);
+  }
+
+  function render() {
+    var t = trace(state);
+    var ran = {};
+    t.p.forEach(function (a) { ran[a] = true; });
+    var x = EXITS[t.exit];
+
+    listingRows.forEach(function (ln) {
+      var a = ln.getAttribute('data-a');
+      var isExit = a === x.at;
+      ln.classList.toggle('run', !!ran[a] && !t.taken[a] && !isExit);
+      ln.classList.toggle('taken', !!t.taken[a] && !isExit);
+      ln.classList.toggle('exit', isExit);
+      ln.classList.toggle('skip', !ran[a]);
+    });
+
+    codeRows.rec.concat(codeRows.dec).forEach(function (r) {
+      var addrs = listOf(r, 'data-addrs');
+      if (!addrs.length) return;
+      var isType = r.getAttribute('data-kind') === 'type';
+      var hit = addrs.some(function (a) { return ran[a]; });
+      r.classList.toggle('skip', !isType && !hit);
+      r.classList.toggle('exit', addrs.indexOf(x.at) >= 0);
+    });
+
+    var counts = {};
+    t.p.forEach(function (a) { var op = BY_ADDR[a].op; counts[op] = (counts[op] || 0) + 1; });
+    codeRows.emu.forEach(function (r) {
+      var hits = $('.hits', r);
+      if (r.getAttribute('data-loop')) { hits.textContent = '×' + t.p.length; return; }
+      var ops = listOf(r, 'data-ops');
+      if (!ops.length) return;
+      var n = ops.reduce(function (s, o) { return s + (counts[o] || 0); }, 0);
+      r.classList.toggle('skip', n === 0);
+      hits.textContent = n ? '×' + n : '';
+    });
+
+    var n = t.p.length;
+    var bytes = t.p.reduce(function (s, a) { return s + BY_ADDR[a].len; }, 0);
+    var last = BY_ADDR[x.at];
+    $('#o-main').textContent = x.name;
+    if (eli5) {
+      $('#o-rom').textContent = n + ' of the 20 instructions ran';
+      $('#o-emu').textContent = 'Translated ' + n + ' instructions on the spot';
+      $('#o-rec').textContent = 'Ran the same ' + n + ' steps, already translated';
+      $('#o-dec').textContent = 'Asked ' + x.checks + (x.checks === 1 ? ' question' : ' questions') + ', then answered “' + x.name + '”';
+      return;
+    }
+    $('#o-rom').innerHTML = '<code>' + last.mn + ' ' + esc(last.arg) + '</code> after ' + n + ' instruction' + (n === 1 ? '' : 's');
+    $('#o-emu').textContent = n + ' trips through the loop and ' + bytes + ' bytes decoded, for this routine alone';
+    $('#o-rec').textContent = 'The same ' + n + ' steps as native code, 0 bytes decoded';
+    $('#o-dec').innerHTML = x.checks + (x.checks === 1 ? ' check' : ' checks') + ', then <code>return ' + x.ev + '</code>';
+  }
+
+  // ---- tabs ----------------------------------------------------------------
+  function selectTab(tab, focus) {
+    $$('[role="tab"]').forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (focus) tab.focus();
+    mark(pinned);
+  }
+
+  // ---- explain like I'm five ------------------------------------------------
+  // Elements with data-e5 swap their text; .std/.eli5 pairs swap via CSS.
+  function setEli5(on, remember) {
+    eli5 = on;
+    document.documentElement.classList.toggle('eli5-on', on);
+    $('#eli5-toggle').setAttribute('aria-pressed', String(on));
+    $$('[data-e5]').forEach(function (el) {
+      if (el.__std === undefined) el.__std = el.textContent;
+      el.textContent = on ? el.getAttribute('data-e5') : el.__std;
+    });
+    setPhase(phase);
+    render();
+    if (!remember) return;
+    try { localStorage.setItem('eli5', on ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    try { history.replaceState(null, '', location.href.split('#')[0] + (on ? '#eli5' : '')); } catch (e) { /* not allowed here */ }
+  }
+
+  // ---- boot ----------------------------------------------------------------
+  function boot() {
+    buildTape();
+    showDecode(BY_ADDR['985E']);
+
+    $('#phase-run').addEventListener('click', function () { setPhase('run'); });
+    $('#phase-build').addEventListener('click', function () { setPhase('build'); });
+    setPhase('run');
+
+    buildListing();
+    buildPane('emu');
+    buildPane('rec');
+    buildPane('dec');
+    listingRows.forEach(function (ln) {
+      bindHover(ln, function () { scrollToMapped(ln); });
+      ln.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ln.click(); }
+      });
+    });
+    ['emu', 'rec', 'dec'].forEach(function (k) {
+      codeRows[k].forEach(function (r) {
+        if (r.getAttribute('data-addrs') || r.getAttribute('data-ops')) bindHover(r);
+      });
+    });
+
+    [['sw-ground', 'ground'], ['sw-ceiling', 'ceiling'], ['pad-b', 'b'], ['pad-down', 'down']].forEach(function (pair) {
+      document.getElementById(pair[0]).addEventListener('click', function () {
+        state[pair[1]] = !state[pair[1]];
+        syncControls();
+        render();
+      });
+    });
+    $('#pad-left').addEventListener('click', function () { state.dir = state.dir === -1 ? 0 : -1; syncControls(); render(); });
+    $('#pad-right').addEventListener('click', function () { state.dir = state.dir === 1 ? 0 : 1; syncControls(); render(); });
+    syncControls();
+    render();
+
+    var tabs = $$('[role="tab"]');
+    tabs.forEach(function (tab, idx) {
+      tab.addEventListener('click', function () { selectTab(tab, false); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight') next = tabs[(idx + 1) % tabs.length];
+        else if (e.key === 'ArrowLeft') next = tabs[(idx + tabs.length - 1) % tabs.length];
+        else if (e.key === 'Home') next = tabs[0];
+        else if (e.key === 'End') next = tabs[tabs.length - 1];
+        if (next) { e.preventDefault(); selectTab(next, true); }
+      });
+    });
+
+    $$('pre[data-src]').forEach(renderPre);
+
+    $('#eli5-toggle').addEventListener('click', function () { setEli5(!eli5, true); });
+    var start = location.hash === '#eli5';
+    if (!start) { try { start = localStorage.getItem('eli5') === '1'; } catch (e) { start = false; } }
+    if (start) setEli5(true, false);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
